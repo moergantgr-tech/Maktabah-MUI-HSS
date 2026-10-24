@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0B4A3C">
 <title>Maktabah Kaderisasi</title>
+<meta name="description" content="Perpustakaan digital modul, panduan, dan literatur kaderisasi MUI Kabupaten Hulu Sungai Selatan.">
+<meta property="og:title" content="Maktabah Kaderisasi">
+<meta property="og:description" content="Cari dan baca modul, panduan, dan literatur kaderisasi.">
+<meta property="og:type" content="website">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Reem+Kufi:wght@500;700&display=swap" rel="stylesheet">
@@ -161,6 +169,8 @@
   @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .btn:active { transform: none; } }
   @media (min-width: 700px) { .list { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 360px) { .brand h1 { font-size: 27px; } .brand img { width: 58px; height: 58px; } .brand .o1 { font-size: 13.5px; } }
+  /* tombol hapus bawaan browser disembunyikan agar tidak ganda dengan tombol × */
+  .search input::-webkit-search-cancel-button, .search input::-webkit-search-decoration { -webkit-appearance: none; display: none; }
 </style>
 </head>
 <body>
@@ -203,86 +213,142 @@
   <header>
     <button id="closeViewer" aria-label="Tutup pratinjau">Tutup</button>
     <strong id="viewerTitle"></strong>
-    <a id="viewerDrive" href="#" target="_self">Drive</a>
+    <a id="viewerDrive" href="#" target="_blank" rel="noopener">Drive</a>
   </header>
-  <iframe id="frame" title="Pratinjau PDF" allow="autoplay"></iframe>
+  <iframe id="frame" title="Pratinjau PDF"></iframe>
 </div>
 
 <script>
 (function () {
   'use strict';
 
-  // ====== KONFIGURASI: tempel URL Web App GAS (berakhiran /exec) ======
+  // ====== KONFIGURASI: URL Web App GAS (berakhiran /exec) ======
   var API_URL = 'https://script.google.com/macros/s/AKfycbyR6B2lrQ6eoz8UO1W7nkCpuU9LB1RWsUaC14y30h2tXOhbUP4gVMsqgEeufLrDIQ/exec';
   var PAGE_SIZE = 12;
-  var DEBOUNCE_MS = 350;
+  var DEBOUNCE_MS = 150;
   var TIMEOUT_MS = 20000;
+  var SLOW_MS = 4000;            // setelah ini tampilkan pesan "server sedang bangun"
+  var REFRESH_AFTER_MS = 10 * 60 * 1000;
+  var CACHE_KEY = 'mk_books_v2';
 
   var SPINES = ['#0B4A3C', '#B8892B', '#24578F', '#8C2F4B', '#1E7F86', '#6B4A9A'];
 
   var $ = function (id) { return document.getElementById(id); };
   var el = { q: $('q'), form: $('searchForm'), clear: $('clearBtn'), chips: $('chips'),
              status: $('status'), list: $('list'), loadmore: $('loadmore'), moreBtn: $('moreBtn'),
-             toTop: $('toTop'), viewer: $('viewer'), frame: $('frame'), vTitle: $('viewerTitle'), vDrive: $('viewerDrive') };
+             toTop: $('toTop'), viewer: $('viewer'), frame: $('frame'), vTitle: $('viewerTitle'),
+             vDrive: $('viewerDrive'), vClose: $('closeViewer') };
 
-  var state = { q: '', kategori: 'Semua', page: 1, hasMore: false, total: 0, ctrl: null, reqId: 0, cats: [], colorMap: {}, error: false };
+  var state = {
+    q: '', kategori: 'Semua',
+    books: [], results: [], shown: 0, cats: [], colorMap: {},
+    ver: '', note: '', error: false,
+    ctrl: null, reqId: 0, lastSync: 0, lastFocus: null
+  };
 
+  // ====== Util ======
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
   function safeUrl(u) { return /^https:\/\//i.test(u || '') ? u : ''; }
-  function spineFor(cat) {
-    if (!state.colorMap[cat]) state.colorMap[cat] = SPINES[Object.keys(state.colorMap).length % SPINES.length];
-    return state.colorMap[cat];
+
+  // Normalisasi pencarian: huruf kecil, tanpa diakritik Latin, tanpa harakat Arab, alif/ya/ta marbuta disamakan
+  function norm(s) {
+    return String(s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+      .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+      .replace(/\u0649/g, '\u064A')
+      .replace(/\u0629/g, '\u0647')
+      .replace(/[^a-z0-9\u0600-\u06FF\s]/g, ' ')
+      .replace(/\s+/g, ' ').trim();
   }
 
-  // ====== Ambil data ======
-  function load(append) {
-    if (state.ctrl) state.ctrl.abort();
-    var ctrl = new AbortController();
-    state.ctrl = ctrl;
-    var myId = ++state.reqId;
-    var timer = setTimeout(function () { ctrl.abort('timeout'); }, TIMEOUT_MS);
+  function prepare(b) {
+    b.tags = b.kataKunci ? b.kataKunci.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+    b._n = { judul: norm(b.judul), tags: norm(b.kataKunci), penulis: norm(b.penulis),
+             kategori: norm(b.kategori), ringkasan: norm(b.ringkasan) };
+    return b;
+  }
 
-    if (!append) { showSkeleton(); el.loadmore.hidden = true; el.status.textContent = 'Mencari…'; }
-    else { el.moreBtn.disabled = true; el.moreBtn.textContent = 'Memuat…'; }
+  var WEIGHTS = { judul: 5, tags: 4, penulis: 3, kategori: 2, ringkasan: 1 };
+  function score(b, tokens) {
+    var total = 0;
+    for (var i = 0; i < tokens.length; i++) {
+      var best = 0;
+      for (var f in WEIGHTS) {
+        if (b._n[f].indexOf(tokens[i]) !== -1 && WEIGHTS[f] > best) best = WEIGHTS[f];
+      }
+      if (!best) return 0;               // semua kata harus ditemukan
+      total += best;
+    }
+    if (tokens.length > 1 && b._n.judul.indexOf(tokens.join(' ')) !== -1) total += 5;
+    return total;
+  }
 
-    var params = new URLSearchParams({
-      action: 'search', q: state.q, kategori: state.kategori, page: state.page, limit: PAGE_SIZE
-    });
+  function urlsFor(b) {
+    if (b.fileId) {
+      var id = encodeURIComponent(b.fileId);
+      return { prev: 'https://drive.google.com/file/d/' + id + '/preview',
+               down: 'https://drive.google.com/uc?export=download&id=' + id,
+               drive: 'https://drive.google.com/file/d/' + id + '/view' };
+    }
+    var u = safeUrl(b.url);
+    return { prev: u, down: u, drive: u };
+  }
 
-    fetch(API_URL + '?' + params.toString(), { signal: ctrl.signal, redirect: 'follow' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('Server menjawab dengan kode ' + r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        if (myId !== state.reqId) return;           // permintaan lama, abaikan
-        if (!data.ok) throw new Error(data.error || 'Terjadi kesalahan di server');
-        state.hasMore = data.hasMore; state.total = data.total;
-        if (data.categories) { state.cats = data.categories; renderChips(); }
-        renderItems(data.items, append);
-      })
-      .catch(function (err) {
-        if (myId !== state.reqId) return;
-        if (err && err.name === 'AbortError' && ctrl.signal.reason !== 'timeout') return;
-        var timeout = ctrl.signal.reason === 'timeout';
-        showError(timeout ? 'Koneksi terlalu lama. Periksa sinyal internet Anda lalu coba lagi.'
-                          : (navigator.onLine === false ? 'Perangkat sedang offline. Sambungkan internet lalu coba lagi.'
-                          : 'Data belum bisa dimuat. ' + (err && err.message ? err.message : '')));
-      })
-      .finally(function () {
-        clearTimeout(timer);
-        el.moreBtn.disabled = false; el.moreBtn.textContent = 'Tampilkan lebih banyak';
+  // ====== Data lokal (cache di browser) ======
+  function readCache() {
+    try {
+      var c = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      return c && Array.isArray(c.items) ? c : null;
+    } catch (e) { return null; }
+  }
+  function writeCache(v, items) {
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ v: v, t: Date.now(), items: items })); } catch (e) { /* penyimpanan penuh/ditolak */ }
+  }
+
+  function setBooks(items, v) {
+    state.books = items.map(prepare);
+    state.ver = v || '';
+    // Kategori & warna ditetapkan dari daftar kategori (urut abjad), sehingga warna selalu konsisten
+    var map = {};
+    state.books.forEach(function (b) { map[b.kategori] = (map[b.kategori] || 0) + 1; });
+    state.cats = Object.keys(map).sort().map(function (n) { return { name: n, count: map[n] }; });
+    state.colorMap = {};
+    state.cats.forEach(function (c, i) { state.colorMap[c.name] = SPINES[i % SPINES.length]; });
+    if (state.kategori !== 'Semua' && !map[state.kategori]) state.kategori = 'Semua';
+  }
+
+  // ====== Pencarian di browser ======
+  function compute() {
+    var pool = state.books;
+    if (state.kategori !== 'Semua') pool = pool.filter(function (b) { return b.kategori === state.kategori; });
+    var q = norm(state.q);
+    if (q) {
+      var tokens = q.split(' ').filter(Boolean), scored = [];
+      pool.forEach(function (b) { var s = score(b, tokens); if (s > 0) scored.push({ b: b, s: s }); });
+      scored.sort(function (a, z) { return z.s - a.s || a.b.judul.localeCompare(z.b.judul); });
+      state.results = scored.map(function (r) { return r.b; });
+    } else {
+      state.results = pool.slice().sort(function (a, z) {
+        return (parseInt(z.tahun, 10) || 0) - (parseInt(a.tahun, 10) || 0) || a.judul.localeCompare(z.judul);
       });
+    }
   }
 
   // ====== Render ======
+  function setStatus() {
+    if (!state.books.length && !state.error) { el.status.textContent = state.note; return; }
+    var shown = el.list.querySelectorAll('.card').length;
+    var base = state.results.length ? 'Menampilkan ' + shown + ' dari ' + state.results.length + ' dokumen' : '';
+    el.status.textContent = base + (state.note ? (base ? ' · ' : '') + state.note : '');
+  }
+
   function renderChips() {
-    var total = state.cats.reduce(function (n, c) { return n + c.count; }, 0);
-    var all = [{ name: 'Semua', count: total }].concat(state.cats);
+    var all = [{ name: 'Semua', count: state.books.length }].concat(state.cats);
     el.chips.innerHTML = all.map(function (c) {
       return '<button class="chip" data-cat="' + esc(c.name) + '" aria-pressed="' + (c.name === state.kategori) + '">' +
              esc(c.name) + '<b>' + c.count + '</b></button>';
@@ -291,45 +357,48 @@
 
   function showSkeleton() {
     el.list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+    el.loadmore.hidden = true;
   }
 
   function showError(msg) {
     state.error = true;
-    el.status.textContent = '';
     el.loadmore.hidden = true;
     el.list.innerHTML = '<div class="box err" style="grid-column:1/-1"><h3>Gagal memuat</h3><p>' + esc(msg) +
       '</p><button class="btn primary" id="retry">Coba lagi</button></div>';
-    $('retry').onclick = function () { load(false); };
+    $('retry').onclick = function () { state.note = ''; showSkeleton(); setSync('Memuat…'); fetchBooks(false); };
+    setSync('');
   }
 
-  function renderItems(items, append) {
+  function render(reset) {
     state.error = false;
-    if (!append) el.list.innerHTML = '';
-    if (!items.length && !append) {
-      el.status.textContent = '';
+    if (reset) { el.list.innerHTML = ''; state.shown = 0; }
+    if (!state.results.length) {
       var hint = state.q ? 'Tidak ada hasil untuk “' + esc(state.q) + '”. Coba kata kunci lain atau pilih kategori Semua.'
                          : 'Belum ada dokumen di kategori ini.';
       el.list.innerHTML = '<div class="box" style="grid-column:1/-1"><h3>Tidak ditemukan</h3><p>' + hint + '</p></div>';
       el.loadmore.hidden = true;
+      setStatus();
       return;
     }
-    var html = items.map(cardHtml).join('');
-    el.list.insertAdjacentHTML('beforeend', html);
-    var shown = el.list.querySelectorAll('.card').length;
-    el.status.textContent = 'Menampilkan ' + shown + ' dari ' + state.total + ' dokumen';
-    el.loadmore.hidden = !state.hasMore;
+    var next = state.results.slice(state.shown, state.shown + PAGE_SIZE);
+    el.list.insertAdjacentHTML('beforeend', next.map(cardHtml).join(''));
+    state.shown += next.length;
+    el.loadmore.hidden = state.shown >= state.results.length;
+    setStatus();
   }
 
+  function setSync(msg) { state.note = msg; setStatus(); }
+
   function cardHtml(b) {
-    var prev = safeUrl(b.previewUrl), down = safeUrl(b.downloadUrl), drive = safeUrl(b.driveUrl);
+    var u = urlsFor(b), prev = safeUrl(u.prev), down = safeUrl(u.down), drive = safeUrl(u.drive);
     var meta = [b.penulis, b.tahun].filter(Boolean).map(esc).join(', ');
-    var tags = (b.tags || []).slice(0, 4).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
+    var tags = b.tags.slice(0, 4).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
     var long = (b.ringkasan || '').length > 140;
-    return '<article class="card" style="--spine:' + spineFor(b.kategori) + '">' +
+    return '<article class="card" style="--spine:' + (state.colorMap[b.kategori] || SPINES[0]) + '">' +
       '<div class="cat">' + esc(b.kategori) + '</div>' +
       '<h2>' + esc(b.judul) + '</h2>' +
       (meta ? '<div class="meta">' + meta + '</div>' : '') +
-      (b.ringkasan ? '<p class="sum">' + esc(b.ringkasan) + '</p>' + (long ? '<button class="more" data-more>Selengkapnya</button>' : '') : '') +
+      (b.ringkasan ? '<p class="sum">' + esc(b.ringkasan) + '</p>' + (long ? '<button class="more" data-more aria-expanded="false">Selengkapnya</button>' : '') : '') +
       (tags ? '<div class="tags">' + tags + '</div>' : '') +
       '<div class="actions">' +
         '<button class="btn primary" data-read="' + esc(prev) + '" data-drive="' + esc(drive) + '" data-title="' + esc(b.judul) + '"' + (prev ? '' : ' disabled') + '>' +
@@ -339,11 +408,61 @@
       '</div></article>';
   }
 
+  // Setelah pencarian/filter baru, bawa pengguna ke awal hasil (di bawah bar yang menempel)
+  function toResults() {
+    if (el.status.getBoundingClientRect().top < 140) el.status.scrollIntoView({ block: 'start' });
+  }
+
+  // ====== Ambil data dari server (di latar belakang) ======
+  function fetchBooks(isRetry) {
+    if (state.ctrl) state.ctrl.abort();
+    var ctrl = new AbortController();
+    state.ctrl = ctrl;
+    var myId = ++state.reqId, timedOut = false;
+    // Flag manual (bukan signal.reason) agar jalan di Android WebView lama
+    var tTimeout = setTimeout(function () { timedOut = true; ctrl.abort(); }, TIMEOUT_MS);
+    var tSlow = setTimeout(function () {
+      if (myId === state.reqId) setSync('Server sedang bangun, mohon tunggu…');
+    }, SLOW_MS);
+
+    var url = API_URL + '?action=all' + (state.ver && state.books.length ? '&v=' + encodeURIComponent(state.ver) : '');
+
+    fetch(url, { signal: ctrl.signal, redirect: 'follow' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Server menjawab dengan kode ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (myId !== state.reqId) return;
+        if (!data.ok) throw new Error(data.error || 'Terjadi kesalahan di server');
+        state.lastSync = Date.now();
+        if (data.same) { setSync(''); return; }          // data tidak berubah
+        writeCache(data.v, data.items);
+        setBooks(data.items, data.v);
+        renderChips(); compute(); render(true);
+        setSync('');
+      })
+      .catch(function (err) {
+        if (myId !== state.reqId) return;
+        if (err && err.name === 'AbortError' && !timedOut) return;   // dibatalkan oleh permintaan baru
+        if (!isRetry) { setSync('Mencoba lagi…'); setTimeout(function () { fetchBooks(true); }, 1200); return; }
+        var offline = navigator.onLine === false;
+        if (state.books.length) {
+          setSync(offline ? 'Offline · memakai data tersimpan' : 'Gagal memperbarui · memakai data tersimpan');
+        } else {
+          showError(timedOut ? 'Koneksi terlalu lama. Periksa sinyal internet Anda lalu coba lagi.'
+                  : offline ? 'Perangkat sedang offline. Sambungkan internet lalu coba lagi.'
+                  : 'Data belum bisa dimuat. ' + (err && err.message ? err.message : ''));
+        }
+      })
+      .then(function () { clearTimeout(tTimeout); clearTimeout(tSlow); });
+  }
+
   // ====== Pencarian & filter ======
   function runSearch() {
     var val = el.q.value.trim();
-    if (val === state.q && state.reqId > 0) return;
-    state.q = val; state.page = 1; load(false);
+    if (val === state.q) return;
+    state.q = val; compute(); render(true); toResults();
   }
   var timer;
   el.q.addEventListener('input', function () {
@@ -356,41 +475,54 @@
   });
   el.chips.addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return;
-    state.kategori = b.getAttribute('data-cat'); state.page = 1; renderChips(); load(false);
+    state.kategori = b.getAttribute('data-cat');
+    renderChips(); compute(); render(true); toResults();
   });
-  el.moreBtn.addEventListener('click', function () { state.page++; load(true); });
+  el.moreBtn.addEventListener('click', function () { render(false); });
 
   // ====== Aksi kartu ======
+  function openExternal(url) {
+    var a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
   el.list.addEventListener('click', function (e) {
     var more = e.target.closest('[data-more]');
     if (more) {
-      var s = more.previousElementSibling; var open = s.classList.toggle('open');
-      more.textContent = open ? 'Ringkas' : 'Selengkapnya'; return;
+      var s = more.previousElementSibling, open = s.classList.toggle('open');
+      more.textContent = open ? 'Ringkas' : 'Selengkapnya';
+      more.setAttribute('aria-expanded', String(open));
+      return;
     }
     var read = e.target.closest('[data-read]');
     if (read) { openViewer(read.getAttribute('data-read'), read.getAttribute('data-title'), read.getAttribute('data-drive')); return; }
     var down = e.target.closest('[data-down]');
-    if (down && down.getAttribute('data-down')) { window.location.href = down.getAttribute('data-down'); }
+    if (down && down.getAttribute('data-down')) openExternal(down.getAttribute('data-down'));
   });
 
   // ====== Pratinjau (modal, aman untuk WebView & tombol Back Android) ======
   function openViewer(url, title, drive) {
     if (!url) return;
+    state.lastFocus = document.activeElement;
     el.vTitle.textContent = title || 'Dokumen';
     el.vDrive.href = drive || url;
     el.frame.src = url;
     el.viewer.classList.add('show');
     document.body.style.overflow = 'hidden';
     history.pushState({ viewer: true }, '');
+    el.vClose.focus();
   }
   function closeViewer(fromPop) {
     if (!el.viewer.classList.contains('show')) return;
     el.viewer.classList.remove('show'); el.frame.src = 'about:blank';
     document.body.style.overflow = '';
     if (!fromPop && history.state && history.state.viewer) history.back();
+    if (state.lastFocus && state.lastFocus.focus) state.lastFocus.focus();
   }
-  $('closeViewer').addEventListener('click', function () { closeViewer(false); });
+  el.vClose.addEventListener('click', function () { closeViewer(false); });
   window.addEventListener('popstate', function () { closeViewer(true); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeViewer(false); });
 
   // ====== Kenyamanan di HP ======
   el.toTop.addEventListener('click', function () { window.scrollTo({ top: 0, behavior: 'smooth' }); });
@@ -399,14 +531,31 @@
     if (ticking) return; ticking = true;
     requestAnimationFrame(function () { el.toTop.hidden = window.scrollY < 500; ticking = false; });
   }, { passive: true });
-  // Sinyal kembali -> muat ulang otomatis bila sebelumnya gagal
-  window.addEventListener('online', function () { if (state.error) load(false); });
+
+  // Sinyal kembali / aplikasi dibuka lagi -> segarkan data diam-diam
+  window.addEventListener('online', function () { if (API_URL) fetchBooks(false); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && state.lastSync && Date.now() - state.lastSync > REFRESH_AFTER_MS) fetchBooks(false);
+  });
 
   // ====== Mulai ======
   if (API_URL.indexOf('GANTI_DENGAN') !== -1) {
     showError('URL Web App belum diatur. Isi variabel API_URL di index.html dengan URL deployment Apps Script (berakhiran /exec).');
   } else {
-    load(false);
+    var cached = readCache();
+    if (cached && cached.items.length) {
+      setBooks(cached.items, cached.v);
+      renderChips(); compute(); render(true);
+      setSync('Memperbarui…');
+    } else {
+      showSkeleton(); setSync('Memuat…');
+    }
+    fetchBooks(false);
+  }
+
+  // ====== PWA: cangkang aplikasi bisa dibuka offline ======
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
   }
 })();
 </script>
