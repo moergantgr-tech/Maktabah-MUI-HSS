@@ -171,6 +171,26 @@
   @media (max-width: 360px) { .brand h1 { font-size: 27px; } .brand img { width: 58px; height: 58px; } .brand .o1 { font-size: 13.5px; } }
   /* tombol hapus bawaan browser disembunyikan agar tidak ganda dengan tombol × */
   .search input::-webkit-search-cancel-button, .search input::-webkit-search-decoration { -webkit-appearance: none; display: none; }
+  /* ===== Sampul buku & tombol bagikan ===== */
+  .card .top { display: flex; gap: 14px; align-items: flex-start; }
+  .card .info { min-width: 0; flex: 1; }
+  .card h2 { overflow-wrap: anywhere; }
+  .cover {
+    position: relative; flex: none; width: 76px; height: 106px; padding: 0; border: 0; border-radius: 8px; overflow: hidden;
+    background: var(--spine, var(--ink)); display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 6px rgba(7,40,32,.25), inset 0 0 0 1px rgba(255,255,255,.14);
+  }
+  .cover svg { width: 30px; height: 30px; color: var(--gold-soft); opacity: .9; }
+  .cover .cimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; background: #fff; opacity: 0; transition: opacity .25s; }
+  .cover .cimg.ok { opacity: 1; }
+  .cover[disabled] { opacity: 1; cursor: default; }
+  .btn.icon { flex: none; width: 48px; padding: 0; }
+  .focusbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 10px 12px;
+    border-radius: 12px; background: var(--gold-soft); color: var(--ink-deep); font-size: 14px;
+  }
+  .focusbar button { flex: none; min-height: 40px; border: 0; border-radius: 10px; padding: 0 14px; background: var(--ink); color: #fff; font-weight: 700; font-size: 14px; }
+  @media (prefers-reduced-motion: reduce) { .cover .cimg { transition: none; } }
 </style>
 </head>
 <body>
@@ -200,6 +220,7 @@
 </div>
 
 <main>
+  <div class="focusbar" id="focusbar" hidden><span id="focusText"></span><button type="button" id="focusAll">Lihat semua buku</button></div>
   <div class="status" id="status" aria-live="polite"></div>
   <div class="list" id="list"></div>
   <div class="loadmore" id="loadmore" hidden><button class="btn" id="moreBtn">Tampilkan lebih banyak</button></div>
@@ -237,12 +258,12 @@
   var el = { q: $('q'), form: $('searchForm'), clear: $('clearBtn'), chips: $('chips'),
              status: $('status'), list: $('list'), loadmore: $('loadmore'), moreBtn: $('moreBtn'),
              toTop: $('toTop'), viewer: $('viewer'), frame: $('frame'), vTitle: $('viewerTitle'),
-             vDrive: $('viewerDrive'), vClose: $('closeViewer') };
+             vDrive: $('viewerDrive'), vClose: $('closeViewer'), focusbar: $('focusbar'), focusText: $('focusText'), focusAll: $('focusAll') };
 
   var state = {
     q: '', kategori: 'Semua',
     books: [], results: [], shown: 0, cats: [], colorMap: {},
-    ver: '', note: '', error: false,
+    ver: '', note: '', error: false, focusId: '', missing: false,
     ctrl: null, reqId: 0, lastSync: 0, lastFocus: null
   };
 
@@ -324,6 +345,11 @@
 
   // ====== Pencarian di browser ======
   function compute() {
+    if (state.focusId) {                                   // tautan langsung ke satu buku
+      var f = state.books.filter(function (b) { return b.id === state.focusId; });
+      if (f.length) { state.results = f; return; }
+      state.focusId = ''; state.missing = true; writeHash();
+    }
     var pool = state.books;
     if (state.kategori !== 'Semua') pool = pool.filter(function (b) { return b.kategori === state.kategori; });
     var q = norm(state.q);
@@ -371,6 +397,7 @@
 
   function render(reset) {
     state.error = false;
+    updateFocusBar();
     if (reset) { el.list.innerHTML = ''; state.shown = 0; }
     if (!state.results.length) {
       var hint = state.q ? 'Tidak ada hasil untuk “' + esc(state.q) + '”. Coba kata kunci lain atau pilih kategori Semua.'
@@ -389,23 +416,86 @@
 
   function setSync(msg) { state.note = msg; setStatus(); }
 
+  var BOOK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5M9 8h6"/></svg>';
+  var SHARE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>';
+
   function cardHtml(b) {
     var u = urlsFor(b), prev = safeUrl(u.prev), down = safeUrl(u.down), drive = safeUrl(u.drive);
     var meta = [b.penulis, b.tahun].filter(Boolean).map(esc).join(', ');
     var tags = b.tags.slice(0, 4).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
     var long = (b.ringkasan || '').length > 140;
+    var readAttrs = ' data-read="' + esc(prev) + '" data-drive="' + esc(drive) + '" data-title="' + esc(b.judul) + '"';
+    var thumb = b.fileId
+      ? '<img class="cimg" src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(b.fileId) + '&amp;sz=w240" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">'
+      : '';
     return '<article class="card" style="--spine:' + (state.colorMap[b.kategori] || SPINES[0]) + '">' +
-      '<div class="cat">' + esc(b.kategori) + '</div>' +
-      '<h2>' + esc(b.judul) + '</h2>' +
-      (meta ? '<div class="meta">' + meta + '</div>' : '') +
+      '<div class="top">' +
+        '<button type="button" class="cover"' + readAttrs + (prev ? '' : ' disabled') + ' aria-label="Baca ' + esc(b.judul) + '">' + BOOK_ICON + thumb + '</button>' +
+        '<div class="info"><div class="cat">' + esc(b.kategori) + '</div>' +
+        '<h2>' + esc(b.judul) + '</h2>' +
+        (meta ? '<div class="meta">' + meta + '</div>' : '') + '</div>' +
+      '</div>' +
       (b.ringkasan ? '<p class="sum">' + esc(b.ringkasan) + '</p>' + (long ? '<button class="more" data-more aria-expanded="false">Selengkapnya</button>' : '') : '') +
       (tags ? '<div class="tags">' + tags + '</div>' : '') +
       '<div class="actions">' +
-        '<button class="btn primary" data-read="' + esc(prev) + '" data-drive="' + esc(drive) + '" data-title="' + esc(b.judul) + '"' + (prev ? '' : ' disabled') + '>' +
+        '<button class="btn primary"' + readAttrs + (prev ? '' : ' disabled') + '>' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15a2 2 0 0 0-2-2H2zM22 5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v15a2 2 0 0 1 2-2h8z"/></svg>Baca</button>' +
         '<button class="btn" data-down="' + esc(down) + '"' + (down ? '' : ' disabled') + '>' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg>Unduh</button>' +
+        '<button class="btn icon" data-share="' + esc(b.id) + '" aria-label="Bagikan ' + esc(b.judul) + '">' + SHARE_ICON + '</button>' +
       '</div></article>';
+  }
+
+  // ====== Deep link: #buku=ID  atau  #q=kata&kat=Kategori ======
+  function enc(x) { return encodeURIComponent(x); }
+  function parseHash() {
+    var p = {}, h = location.hash.replace(/^#/, '');
+    if (!h) return p;
+    h.split('&').forEach(function (kv) {
+      var i = kv.indexOf('='); if (i < 1) return;
+      try { p[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' ')); } catch (e) { /* abaikan */ }
+    });
+    return p;
+  }
+  function writeHash() {
+    var parts = [];
+    if (state.focusId) parts.push('buku=' + enc(state.focusId));
+    else {
+      if (state.q) parts.push('q=' + enc(state.q));
+      if (state.kategori !== 'Semua') parts.push('kat=' + enc(state.kategori));
+    }
+    try { history.replaceState(history.state, '', location.pathname + location.search + (parts.length ? '#' + parts.join('&') : '')); } catch (e) { /* mis. file:// */ }
+  }
+  function applyHash() {
+    var p = parseHash();
+    state.focusId = p.buku || ''; state.missing = false;
+    state.q = p.q || ''; state.kategori = p.kat || 'Semua';
+    el.q.value = state.q; el.clear.style.display = state.q ? 'block' : 'none';
+  }
+  function updateFocusBar() {
+    var show = !!state.focusId || state.missing;
+    el.focusbar.hidden = !show;
+    if (show) el.focusText.textContent = state.focusId ? 'Menampilkan satu buku dari tautan yang dibagikan.'
+                                                        : 'Buku dari tautan tidak ditemukan. Mungkin sudah dihapus.';
+  }
+  function leaveFocus() { state.focusId = ''; state.missing = false; }
+  el.focusAll.addEventListener('click', function () { leaveFocus(); writeHash(); compute(); render(true); });
+  window.addEventListener('hashchange', function () {
+    applyHash();
+    if (!state.books.length) return;
+    if (state.kategori !== 'Semua' && !state.cats.some(function (c) { return c.name === state.kategori; })) state.kategori = 'Semua';
+    renderChips(); compute(); render(true);
+  });
+
+  // ====== Bagikan (lembar bagikan HP bila ada, kalau tidak langsung WhatsApp) ======
+  function shareBook(id) {
+    var b = state.books.filter(function (x) { return x.id === id; })[0];
+    if (!b) return;
+    var link = location.href.split('#')[0] + '#buku=' + enc(b.id);
+    var by = [b.penulis, b.tahun].filter(Boolean).join(', ');
+    var text = '*' + b.judul + '*' + (by ? '\n' + by : '') + '\nMaktabah Kaderisasi';
+    if (navigator.share) { navigator.share({ title: b.judul, text: text, url: link }).catch(function () {}); return; }
+    openExternal('https://wa.me/?text=' + enc(text + '\n' + link));
   }
 
   // Setelah pencarian/filter baru, bawa pengguna ke awal hasil (di bawah bar yang menempel)
@@ -461,8 +551,8 @@
   // ====== Pencarian & filter ======
   function runSearch() {
     var val = el.q.value.trim();
-    if (val === state.q) return;
-    state.q = val; compute(); render(true); toResults();
+    if (val === state.q && !state.focusId) return;
+    leaveFocus(); state.q = val; writeHash(); compute(); render(true); toResults();
   }
   var timer;
   el.q.addEventListener('input', function () {
@@ -475,7 +565,7 @@
   });
   el.chips.addEventListener('click', function (e) {
     var b = e.target.closest('.chip'); if (!b) return;
-    state.kategori = b.getAttribute('data-cat');
+    leaveFocus(); state.kategori = b.getAttribute('data-cat'); writeHash();
     renderChips(); compute(); render(true); toResults();
   });
   el.moreBtn.addEventListener('click', function () { render(false); });
@@ -487,7 +577,20 @@
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
 
+  // Sampul: tampil halus bila berhasil dimuat; bila gagal/ikon kosong, tinggal ikon buku berwarna kategori
+  el.list.addEventListener('load', function (e) {
+    var t = e.target;
+    if (!t.classList || !t.classList.contains('cimg')) return;
+    if (t.naturalWidth < 40) t.parentNode.removeChild(t); else t.classList.add('ok');
+  }, true);
+  el.list.addEventListener('error', function (e) {
+    var t = e.target;
+    if (t.classList && t.classList.contains('cimg') && t.parentNode) t.parentNode.removeChild(t);
+  }, true);
+
   el.list.addEventListener('click', function (e) {
+    var share = e.target.closest('[data-share]');
+    if (share) { shareBook(share.getAttribute('data-share')); return; }
     var more = e.target.closest('[data-more]');
     if (more) {
       var s = more.previousElementSibling, open = s.classList.toggle('open');
@@ -542,6 +645,7 @@
   if (API_URL.indexOf('GANTI_DENGAN') !== -1) {
     showError('URL Web App belum diatur. Isi variabel API_URL di index.html dengan URL deployment Apps Script (berakhiran /exec).');
   } else {
+    applyHash();
     var cached = readCache();
     if (cached && cached.items.length) {
       setBooks(cached.items, cached.v);
