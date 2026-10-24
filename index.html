@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#17363A">
+<title>Maktabah Kaderisasi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ===== TEMA: ubah warna organisasi di sini saja ===== */
+  :root {
+    --ink: #17363A;        /* warna utama (header, tombol utama) */
+    --ink-soft: #24505A;
+    --accent: #A8741A;     /* aksen emas */
+    --bg: #EEF2F0;
+    --surface: #FFFFFF;
+    --line: #D9E1DE;
+    --text: #1B2A2C;
+    --muted: #5B6F70;
+    --danger: #A33A2F;
+    --radius: 14px;
+    --font-body: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-title: 'Amiri', 'Times New Roman', serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html { scroll-padding-top: 150px; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 var(--font-body);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  button { font: inherit; cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+  /* ===== Header & pencarian ===== */
+  .top {
+    position: sticky; top: 0; z-index: 20; background: var(--ink); color: #fff;
+    padding: calc(12px + env(safe-area-inset-top, 0)) 16px 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  }
+  .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .brand h1 { margin: 0; font: 700 26px/1.2 var(--font-title); letter-spacing: .2px; }
+  .brand small { color: #B9CCCB; font-size: 12px; }
+  .search { position: relative; margin-top: 10px; }
+  .search input {
+    width: 100%; height: 46px; border: 0; border-radius: 12px;
+    padding: 0 82px 0 42px; font: inherit; color: var(--text); background: #fff;
+  }
+  .search .ico { position: absolute; left: 13px; top: 13px; width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
+  .search .clear {
+    position: absolute; right: 44px; top: 7px; width: 32px; height: 32px; border: 0;
+    background: transparent; color: var(--muted); font-size: 20px; display: none;
+  }
+  .search .go {
+    position: absolute; right: 5px; top: 5px; height: 36px; padding: 0 12px; border: 0;
+    border-radius: 9px; background: var(--accent); color: #fff; font-weight: 600; font-size: 13px;
+  }
+  .chips { display: flex; gap: 8px; overflow-x: auto; margin: 10px -16px 0; padding: 0 16px 2px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; border: 1px solid rgba(255,255,255,.28); background: transparent; color: #E4EEED;
+    border-radius: 999px; padding: 6px 13px; font-size: 13px; white-space: nowrap;
+  }
+  .chip b { font-weight: 600; opacity: .7; margin-left: 4px; }
+  .chip[aria-pressed="true"] { background: #fff; color: var(--ink); border-color: #fff; font-weight: 600; }
+
+  /* ===== Daftar ===== */
+  main { padding: 14px 14px 40px; max-width: 760px; margin: 0 auto; }
+  .status { margin: 2px 2px 12px; color: var(--muted); font-size: 13px; min-height: 18px; }
+  .list { display: grid; gap: 12px; }
+
+  .card {
+    position: relative; background: var(--surface); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 14px 14px 14px 20px; overflow: hidden;
+  }
+  /* punggung buku: warna sesuai kategori */
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: var(--spine, var(--ink)); }
+  .cat { font-size: 12px; font-weight: 600; color: var(--spine, var(--ink)); }
+  .card h2 { margin: 2px 0 2px; font: 700 21px/1.3 var(--font-title); color: var(--text); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .sum {
+    margin: 8px 0 0; color: #35484A; font-size: 14px;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .sum.open { -webkit-line-clamp: unset; }
+  .more { border: 0; background: none; padding: 2px 0; color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tag { background: #EDF2F0; color: var(--ink-soft); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .btn {
+    flex: 1; height: 42px; border-radius: 10px; border: 1px solid var(--ink); font-weight: 600; font-size: 14px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: transparent; color: var(--ink);
+  }
+  .btn.primary { background: var(--ink); color: #fff; }
+  .btn:active { transform: scale(.98); }
+  .btn svg { width: 17px; height: 17px; }
+  .btn[disabled] { opacity: .45; pointer-events: none; }
+
+  /* ===== State: loading, kosong, error ===== */
+  .skeleton { height: 150px; border-radius: var(--radius); background: linear-gradient(90deg,#E3EAE7 25%,#F1F5F3 50%,#E3EAE7 75%); background-size: 200% 100%; animation: sh 1.3s linear infinite; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  .box { text-align: center; background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius); padding: 28px 18px; }
+  .box h3 { margin: 0 0 6px; font: 700 20px var(--font-title); }
+  .box p { margin: 0 0 14px; color: var(--muted); }
+  .box.err { border-color: var(--danger); }
+  .box.err h3 { color: var(--danger); }
+  .box .btn { flex: none; padding: 0 20px; display: inline-flex; }
+  .loadmore { display: flex; justify-content: center; margin-top: 16px; }
+  .loadmore .btn { flex: none; padding: 0 26px; }
+
+  /* ===== Pratinjau PDF ===== */
+  .viewer { position: fixed; inset: 0; z-index: 50; background: #fff; display: none; flex-direction: column; }
+  .viewer.show { display: flex; }
+  .viewer header {
+    display: flex; align-items: center; gap: 8px; background: var(--ink); color: #fff;
+    padding: calc(8px + env(safe-area-inset-top, 0)) 8px 8px 12px;
+  }
+  .viewer header strong { flex: 1; font: 700 17px/1.2 var(--font-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .viewer header button, .viewer header a {
+    border: 0; background: rgba(255,255,255,.14); color: #fff; border-radius: 9px; height: 38px;
+    padding: 0 12px; font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center;
+  }
+  .viewer iframe { flex: 1; border: 0; width: 100%; background: #f2f2f2; }
+
+  @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .btn:active { transform: none; } }
+  @media (min-width: 700px) { .list { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>Maktabah Kaderisasi</h1>
+    <small>Komisi Pendidikan &amp; Kaderisasi</small>
+  </div>
+  <form class="search" id="searchForm" role="search" autocomplete="off">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="q" type="search" inputmode="search" enterkeyhint="search" placeholder="Cari judul, penulis, atau kata kunci" aria-label="Cari buku">
+    <button type="button" class="clear" id="clearBtn" aria-label="Hapus pencarian">&times;</button>
+    <button type="submit" class="go">Cari</button>
+  </form>
+  <div class="chips" id="chips" role="group" aria-label="Filter kategori"></div>
+</header>
+
+<main>
+  <div class="status" id="status" aria-live="polite"></div>
+  <div class="list" id="list"></div>
+  <div class="loadmore" id="loadmore" hidden><button class="btn" id="moreBtn">Tampilkan lebih banyak</button></div>
+</main>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Pratinjau dokumen">
+  <header>
+    <button id="closeViewer" aria-label="Tutup pratinjau">Tutup</button>
+    <strong id="viewerTitle"></strong>
+    <a id="viewerDrive" href="#" target="_self">Drive</a>
+  </header>
+  <iframe id="frame" title="Pratinjau PDF" allow="autoplay"></iframe>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ====== KONFIGURASI: tempel URL Web App GAS (berakhiran /exec) ======
+  var API_URL = 'https://script.google.com/macros/s/GANTI_DENGAN_ID_DEPLOYMENT/exec';
+  var PAGE_SIZE = 12;
+  var DEBOUNCE_MS = 350;
+  var TIMEOUT_MS = 20000;
+
+  var SPINES = ['#17363A', '#A8741A', '#2F6B4F', '#7A3E5C', '#355C8A', '#8A4B2A'];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var el = { q: $('q'), form: $('searchForm'), clear: $('clearBtn'), chips: $('chips'),
+             status: $('status'), list: $('list'), loadmore: $('loadmore'), moreBtn: $('moreBtn'),
+             viewer: $('viewer'), frame: $('frame'), vTitle: $('viewerTitle'), vDrive: $('viewerDrive') };
+
+  var state = { q: '', kategori: 'Semua', page: 1, hasMore: false, total: 0, ctrl: null, reqId: 0, cats: [], colorMap: {} };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function safeUrl(u) { return /^https:\/\//i.test(u || '') ? u : ''; }
+  function spineFor(cat) {
+    if (!state.colorMap[cat]) state.colorMap[cat] = SPINES[Object.keys(state.colorMap).length % SPINES.length];
+    return state.colorMap[cat];
+  }
+
+  // ====== Ambil data ======
+  function load(append) {
+    if (state.ctrl) state.ctrl.abort();
+    var ctrl = new AbortController();
+    state.ctrl = ctrl;
+    var myId = ++state.reqId;
+    var timer = setTimeout(function () { ctrl.abort('timeout'); }, TIMEOUT_MS);
+
+    if (!append) { showSkeleton(); el.loadmore.hidden = true; el.status.textContent = 'Mencari…'; }
+    else { el.moreBtn.disabled = true; el.moreBtn.textContent = 'Memuat…'; }
+
+    var params = new URLSearchParams({
+      action: 'search', q: state.q, kategori: state.kategori, page: state.page, limit: PAGE_SIZE
+    });
+
+    fetch(API_URL + '?' + params.toString(), { signal: ctrl.signal, redirect: 'follow' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Server menjawab dengan kode ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        if (myId !== state.reqId) return;           // permintaan lama, abaikan
+        if (!data.ok) throw new Error(data.error || 'Terjadi kesalahan di server');
+        state.hasMore = data.hasMore; state.total = data.total;
+        if (data.categories) { state.cats = data.categories; renderChips(); }
+        renderItems(data.items, append);
+      })
+      .catch(function (err) {
+        if (myId !== state.reqId) return;
+        if (err && err.name === 'AbortError' && ctrl.signal.reason !== 'timeout') return;
+        var timeout = ctrl.signal.reason === 'timeout';
+        showError(timeout ? 'Koneksi terlalu lama. Periksa sinyal internet Anda lalu coba lagi.'
+                          : (navigator.onLine === false ? 'Perangkat sedang offline. Sambungkan internet lalu coba lagi.'
+                          : 'Data belum bisa dimuat. ' + (err && err.message ? err.message : '')));
+      })
+      .finally(function () {
+        clearTimeout(timer);
+        el.moreBtn.disabled = false; el.moreBtn.textContent = 'Tampilkan lebih banyak';
+      });
+  }
+
+  // ====== Render ======
+  function renderChips() {
+    var total = state.cats.reduce(function (n, c) { return n + c.count; }, 0);
+    var all = [{ name: 'Semua', count: total }].concat(state.cats);
+    el.chips.innerHTML = all.map(function (c) {
+      return '<button class="chip" data-cat="' + esc(c.name) + '" aria-pressed="' + (c.name === state.kategori) + '">' +
+             esc(c.name) + '<b>' + c.count + '</b></button>';
+    }).join('');
+  }
+
+  function showSkeleton() {
+    el.list.innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
+  }
+
+  function showError(msg) {
+    el.status.textContent = '';
+    el.loadmore.hidden = true;
+    el.list.innerHTML = '<div class="box err" style="grid-column:1/-1"><h3>Gagal memuat</h3><p>' + esc(msg) +
+      '</p><button class="btn primary" id="retry">Coba lagi</button></div>';
+    $('retry').onclick = function () { load(false); };
+  }
+
+  function renderItems(items, append) {
+    if (!append) el.list.innerHTML = '';
+    if (!items.length && !append) {
+      el.status.textContent = '';
+      var hint = state.q ? 'Tidak ada hasil untuk “' + esc(state.q) + '”. Coba kata kunci lain atau pilih kategori Semua.'
+                         : 'Belum ada dokumen di kategori ini.';
+      el.list.innerHTML = '<div class="box" style="grid-column:1/-1"><h3>Tidak ditemukan</h3><p>' + hint + '</p></div>';
+      el.loadmore.hidden = true;
+      return;
+    }
+    var html = items.map(cardHtml).join('');
+    el.list.insertAdjacentHTML('beforeend', html);
+    var shown = el.list.querySelectorAll('.card').length;
+    el.status.textContent = 'Menampilkan ' + shown + ' dari ' + state.total + ' dokumen';
+    el.loadmore.hidden = !state.hasMore;
+  }
+
+  function cardHtml(b) {
+    var prev = safeUrl(b.previewUrl), down = safeUrl(b.downloadUrl), drive = safeUrl(b.driveUrl);
+    var meta = [b.penulis, b.tahun].filter(Boolean).map(esc).join(', ');
+    var tags = (b.tags || []).slice(0, 4).map(function (t) { return '<span class="tag">' + esc(t) + '</span>'; }).join('');
+    var long = (b.ringkasan || '').length > 140;
+    return '<article class="card" style="--spine:' + spineFor(b.kategori) + '">' +
+      '<div class="cat">' + esc(b.kategori) + '</div>' +
+      '<h2>' + esc(b.judul) + '</h2>' +
+      (meta ? '<div class="meta">' + meta + '</div>' : '') +
+      (b.ringkasan ? '<p class="sum">' + esc(b.ringkasan) + '</p>' + (long ? '<button class="more" data-more>Selengkapnya</button>' : '') : '') +
+      (tags ? '<div class="tags">' + tags + '</div>' : '') +
+      '<div class="actions">' +
+        '<button class="btn primary" data-read="' + esc(prev) + '" data-drive="' + esc(drive) + '" data-title="' + esc(b.judul) + '"' + (prev ? '' : ' disabled') + '>' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15a2 2 0 0 0-2-2H2zM22 5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v15a2 2 0 0 1 2-2h8z"/></svg>Baca</button>' +
+        '<button class="btn" data-down="' + esc(down) + '"' + (down ? '' : ' disabled') + '>' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg>Unduh</button>' +
+      '</div></article>';
+  }
+
+  // ====== Pencarian & filter ======
+  function runSearch() {
+    var val = el.q.value.trim();
+    if (val === state.q && state.reqId > 0) return;
+    state.q = val; state.page = 1; load(false);
+  }
+  var timer;
+  el.q.addEventListener('input', function () {
+    el.clear.style.display = el.q.value ? 'block' : 'none';
+    clearTimeout(timer); timer = setTimeout(runSearch, DEBOUNCE_MS);
+  });
+  el.form.addEventListener('submit', function (e) { e.preventDefault(); clearTimeout(timer); el.q.blur(); runSearch(); });
+  el.clear.addEventListener('click', function () {
+    el.q.value = ''; el.clear.style.display = 'none'; el.q.focus(); clearTimeout(timer); runSearch();
+  });
+  el.chips.addEventListener('click', function (e) {
+    var b = e.target.closest('.chip'); if (!b) return;
+    state.kategori = b.getAttribute('data-cat'); state.page = 1; renderChips(); load(false);
+  });
+  el.moreBtn.addEventListener('click', function () { state.page++; load(true); });
+
+  // ====== Aksi kartu ======
+  el.list.addEventListener('click', function (e) {
+    var more = e.target.closest('[data-more]');
+    if (more) {
+      var s = more.previousElementSibling; var open = s.classList.toggle('open');
+      more.textContent = open ? 'Ringkas' : 'Selengkapnya'; return;
+    }
+    var read = e.target.closest('[data-read]');
+    if (read) { openViewer(read.getAttribute('data-read'), read.getAttribute('data-title'), read.getAttribute('data-drive')); return; }
+    var down = e.target.closest('[data-down]');
+    if (down && down.getAttribute('data-down')) { window.location.href = down.getAttribute('data-down'); }
+  });
+
+  // ====== Pratinjau (modal, aman untuk WebView & tombol Back Android) ======
+  function openViewer(url, title, drive) {
+    if (!url) return;
+    el.vTitle.textContent = title || 'Dokumen';
+    el.vDrive.href = drive || url;
+    el.frame.src = url;
+    el.viewer.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    history.pushState({ viewer: true }, '');
+  }
+  function closeViewer(fromPop) {
+    if (!el.viewer.classList.contains('show')) return;
+    el.viewer.classList.remove('show'); el.frame.src = 'about:blank';
+    document.body.style.overflow = '';
+    if (!fromPop && history.state && history.state.viewer) history.back();
+  }
+  $('closeViewer').addEventListener('click', function () { closeViewer(false); });
+  window.addEventListener('popstate', function () { closeViewer(true); });
+
+  // ====== Mulai ======
+  if (API_URL.indexOf('GANTI_DENGAN') !== -1) {
+    showError('URL Web App belum diatur. Isi variabel API_URL di index.html dengan URL deployment Apps Script (berakhiran /exec).');
+  } else {
+    load(false);
+  }
+})();
+</script>
+</body>
+</html>
