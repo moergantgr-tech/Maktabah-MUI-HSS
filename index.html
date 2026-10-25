@@ -166,6 +166,31 @@
   }
   .viewer iframe { flex: 1; border: 0; width: 100%; background: #f2f2f2; }
 
+  /* Pencarian teks di dalam buku */
+  .vsearch { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #fff; border-bottom: 1px solid var(--line); }
+  .vsearch input {
+    flex: 1; min-width: 0; height: 42px; border: 1px solid var(--line); border-radius: 10px;
+    padding: 0 12px; font: inherit; font-size: 16px; color: var(--text); background: #fff;
+  }
+  .vsearch .btn { flex: none; height: 42px; padding: 0 18px; }
+  .vsearch .pgno { flex: none; min-width: 52px; text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vsearch input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+  .hits { max-height: 34vh; overflow: auto; background: #F4F8F6; border-bottom: 1px solid var(--line); }
+  .hits .hh { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 12px; background: #E3F0E9; font-size: 13px; color: var(--ink-soft); font-weight: 600; }
+  .hits .hh button { border: 0; background: none; color: var(--ink); font-weight: 700; font-size: 13px; min-height: 36px; padding: 0 6px; }
+  .hit { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none;
+    padding: 10px 12px; font: inherit; font-size: 14.5px; color: var(--text); min-height: 48px; }
+  .hit b { color: var(--ink); }
+  .hit em { font-style: normal; color: var(--muted); font-size: 12.5px; }
+  .hit mark { background: var(--gold-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
+  .hits .none { margin: 0; padding: 14px 12px; color: var(--muted); font-size: 14.5px; }
+  .pages { position: relative; flex: 1; min-height: 0; overflow: auto; background: #D5E0DA; padding: 8px 0; -webkit-overflow-scrolling: touch; }
+  .pg { margin: 0 auto 10px; background: #fff; box-shadow: 0 1px 4px rgba(7,40,32,.25); }
+  .pg canvas { display: block; }
+  .pg.flash { outline: 3px solid var(--gold); outline-offset: -3px; }
+  .vmsg { margin: 0; padding: 40px 20px; text-align: center; color: var(--muted); }
+
   @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } .btn:active { transform: none; } }
   @media (min-width: 700px) { .list { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 360px) { .brand h1 { font-size: 27px; } .brand img { width: 58px; height: 58px; } .brand .o1 { font-size: 13.5px; } }
@@ -215,7 +240,17 @@
     <strong id="viewerTitle"></strong>
     <a id="viewerDrive" href="#" target="_blank" rel="noopener">Drive</a>
   </header>
-  <iframe id="frame" title="Pratinjau PDF"></iframe>
+  <form class="vsearch" id="pdfSearch" role="search" autocomplete="off" hidden>
+    <input id="pdfQ" type="search" inputmode="search" enterkeyhint="search" placeholder="Cari teks di buku ini" aria-label="Cari teks di dalam buku">
+    <button type="submit" class="btn primary">Cari</button>
+    <span class="pgno" id="pgNo"></span>
+  </form>
+  <div class="hits" id="pdfHits" hidden>
+    <div class="hh"><span id="hitInfo"></span><button type="button" id="hitClose">Sembunyikan</button></div>
+    <div id="hitList"></div>
+  </div>
+  <div class="pages" id="pages"></div>
+  <iframe id="frame" title="Pratinjau PDF" hidden></iframe>
 </div>
 
 <script>
@@ -401,7 +436,7 @@
       (b.ringkasan ? '<p class="sum">' + esc(b.ringkasan) + '</p>' + (long ? '<button class="more" data-more aria-expanded="false">Selengkapnya</button>' : '') : '') +
       (tags ? '<div class="tags">' + tags + '</div>' : '') +
       '<div class="actions">' +
-        '<button class="btn primary" data-read="' + esc(prev) + '" data-drive="' + esc(drive) + '" data-title="' + esc(b.judul) + '"' + (prev ? '' : ' disabled') + '>' +
+        '<button class="btn primary" data-read="' + esc(prev) + '" data-drive="' + esc(drive) + '" data-title="' + esc(b.judul) + '" data-fid="' + esc(b.fileId || '') + '" data-bid="' + esc(b.id) + '"' + (prev ? '' : ' disabled') + '>' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15a2 2 0 0 0-2-2H2zM22 5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v15a2 2 0 0 1 2-2h8z"/></svg>Baca</button>' +
         '<button class="btn" data-down="' + esc(down) + '"' + (down ? '' : ' disabled') + '>' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></svg>Unduh</button>' +
@@ -496,26 +531,273 @@
       return;
     }
     var read = e.target.closest('[data-read]');
-    if (read) { openViewer(read.getAttribute('data-read'), read.getAttribute('data-title'), read.getAttribute('data-drive')); return; }
+    if (read) {
+      openViewer(read.getAttribute('data-read'), read.getAttribute('data-title'), read.getAttribute('data-drive'),
+                 read.getAttribute('data-fid'), read.getAttribute('data-bid'));
+      return;
+    }
     var down = e.target.closest('[data-down]');
     if (down && down.getAttribute('data-down')) openExternal(down.getAttribute('data-down'));
   });
 
-  // ====== Pratinjau (modal, aman untuk WebView & tombol Back Android) ======
-  function openViewer(url, title, drive) {
-    if (!url) return;
+  // ====== Statistik pengunjung (dicatat ke sheet "Kunjungan" di Google Sheet) ======
+  var memVid = '';
+  function getVid() {
+    try {
+      var v = localStorage.getItem('mk_vid');
+      if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('mk_vid', v); }
+      return v;
+    } catch (e) {
+      if (!memVid) memVid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      return memVid;
+    }
+  }
+  function logHit(type, bookId) {
+    try {
+      if (!API_URL || API_URL.indexOf('GANTI_DENGAN') !== -1) return;
+      var u = API_URL + '?action=hit&vid=' + encodeURIComponent(getVid()) + '&t=' + type +
+              (bookId ? '&b=' + encodeURIComponent(bookId) : '');
+      fetch(u, { mode: 'no-cors', keepalive: true }).catch(function () {});
+    } catch (e) { /* statistik tidak boleh mengganggu aplikasi */ }
+  }
+
+  // ====== Pratinjau PDF dengan pencarian teks (PDF.js dimuat hanya saat buku dibuka) ======
+  var PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  var PDF_TIMEOUT_MS = 70000;
+
+  var pagesEl = $('pages'), hitsEl = $('pdfHits'), hitList = $('hitList'), hitInfo = $('hitInfo'),
+      pdfForm = $('pdfSearch'), pdfQ = $('pdfQ'), pgNo = $('pgNo');
+  var pdfDoc = null, pageTexts = [], io = null, viewId = 0, searchId = 0, lastW = 0, pjsPromise = null;
+
+  function loadPdfJs() {
+    if (window.pdfjsLib) { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; return Promise.resolve(); }
+    if (!pjsPromise) {
+      pjsPromise = new Promise(function (resolve, reject) {
+        var sc = document.createElement('script');
+        sc.src = PDFJS_URL;
+        sc.onload = function () { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; resolve(); };
+        sc.onerror = function () { pjsPromise = null; reject(new Error('PDF.js gagal dimuat')); };
+        document.head.appendChild(sc);
+      });
+    }
+    return pjsPromise;
+  }
+
+  function fetchPdfBytes(fileId) {
+    return fetch(API_URL + '?action=pdf&id=' + encodeURIComponent(fileId), { redirect: 'follow' })
+      .then(function (r) { if (!r.ok) throw new Error('Server ' + r.status); return r.json(); })
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Gagal mengambil berkas');
+        var bin = atob(d.data), arr = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return arr;
+      });
+  }
+
+  function setPagesMsg(msg) { pagesEl.innerHTML = '<p class="vmsg">' + esc(msg) + '</p>'; }
+
+  // Cadangan: pratinjau Drive biasa (tanpa pencarian teks) bila berkas besar / gagal dimuat
+  function fallbackIframe(url) {
+    pdfForm.hidden = true; hitsEl.hidden = true; pagesEl.hidden = true;
+    if (!url) { pagesEl.hidden = false; setPagesMsg('Dokumen tidak dapat dibuka.'); return; }
+    el.frame.hidden = false; el.frame.src = url;
+  }
+
+  function openViewer(url, title, drive, fileId, bookId) {
+    if (!url && !fileId) return;
+    var my = ++viewId;
     state.lastFocus = document.activeElement;
     el.vTitle.textContent = title || 'Dokumen';
-    el.vDrive.href = drive || url;
-    el.frame.src = url;
+    el.vDrive.href = drive || url || '#';
+    resetViewerBody();
     el.viewer.classList.add('show');
     document.body.style.overflow = 'hidden';
     history.pushState({ viewer: true }, '');
     el.vClose.focus();
+    logHit('baca', bookId);
+
+    if (!fileId) { fallbackIframe(url); return; }
+
+    setPagesMsg('Memuat dokumen… File besar bisa memerlukan beberapa saat.');
+    var timer = setTimeout(function () { if (my === viewId && !pdfDoc) fallbackIframe(url); }, PDF_TIMEOUT_MS);
+
+    Promise.all([loadPdfJs(), fetchPdfBytes(fileId)])
+      .then(function (r) { return window.pdfjsLib.getDocument({ data: r[1] }).promise; })
+      .then(function (pdf) {
+        if (my !== viewId) { pdf.destroy(); return; }
+        clearTimeout(timer);
+        pdfDoc = pdf; pageTexts = [];
+        pdfForm.hidden = false;
+        buildPages(pdf);
+      })
+      .catch(function () {
+        clearTimeout(timer);
+        if (my === viewId) fallbackIframe(url);
+      });
   }
+
+  function resetViewerBody() {
+    searchId++;
+    if (io) { io.disconnect(); io = null; }
+    if (pdfDoc) { try { pdfDoc.destroy(); } catch (e) {} }
+    pdfDoc = null; pageTexts = [];
+    pagesEl.innerHTML = ''; pagesEl.hidden = false;
+    hitsEl.hidden = true; hitList.innerHTML = '';
+    pdfForm.hidden = true; pdfQ.value = ''; pgNo.textContent = '';
+    el.frame.hidden = true; el.frame.src = 'about:blank';
+  }
+
+  function pageWidth() { return Math.max(200, Math.min(pagesEl.clientWidth - 16, 900)); }
+
+  function buildPages(pdf) {
+    if (io) { io.disconnect(); io = null; }
+    pagesEl.innerHTML = '';
+    var w = pageWidth(); lastW = pagesEl.clientWidth;
+    pdf.getPage(1).then(function (p0) {
+      if (pdf !== pdfDoc) return;
+      var v0 = p0.getViewport({ scale: 1 }), h = Math.round(w * v0.height / v0.width);
+      io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          var d = en.target;
+          if (en.isIntersecting) {
+            if (!d.dataset.done) { d.dataset.done = '1'; renderPage(pdf, +d.dataset.n, d, w); }
+          } else if (d.dataset.done) {      // bebaskan memori halaman yang jauh dari layar
+            d.innerHTML = ''; delete d.dataset.done;
+          }
+        });
+      }, { root: pagesEl, rootMargin: '1200px 0px' });
+      var frag = document.createDocumentFragment();
+      for (var n = 1; n <= pdf.numPages; n++) {
+        var d = document.createElement('div');
+        d.className = 'pg'; d.dataset.n = n;
+        d.style.width = w + 'px'; d.style.height = h + 'px';
+        frag.appendChild(d);
+      }
+      pagesEl.appendChild(frag);
+      Array.prototype.forEach.call(pagesEl.children, function (d) { io.observe(d); });
+      updatePgNo();
+    });
+  }
+
+  function renderPage(pdf, n, d, w) {
+    pdf.getPage(n).then(function (page) {
+      if (pdf !== pdfDoc || !d.dataset.done) return;
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var scale = w / page.getViewport({ scale: 1 }).width;
+      var vp = page.getViewport({ scale: scale * dpr });
+      var c = document.createElement('canvas');
+      c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+      c.style.width = w + 'px'; c.style.height = Math.round(vp.height / dpr) + 'px';
+      d.innerHTML = ''; d.appendChild(c); d.style.height = c.style.height;
+      page.render({ canvasContext: c.getContext('2d'), viewport: vp });
+    }).catch(function () {});
+  }
+
+  // Nomor halaman yang sedang dibaca
+  function currentIndex() {
+    var top = pagesEl.scrollTop + 10, ch = pagesEl.children;
+    for (var i = 0; i < ch.length; i++) if (ch[i].offsetTop + ch[i].offsetHeight > top) return i;
+    return Math.max(0, ch.length - 1);
+  }
+  function updatePgNo() {
+    pgNo.textContent = pdfDoc ? (currentIndex() + 1) + '/' + pdfDoc.numPages : '';
+  }
+  var pgTick = false;
+  pagesEl.addEventListener('scroll', function () {
+    if (pgTick || !pdfDoc) return; pgTick = true;
+    requestAnimationFrame(function () { updatePgNo(); pgTick = false; });
+  }, { passive: true });
+
+  // Putar layar / ubah lebar jendela -> susun ulang halaman, tetap di halaman yang sama
+  var rzTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(rzTimer);
+    rzTimer = setTimeout(function () {
+      if (!pdfDoc || !el.viewer.classList.contains('show') || pagesEl.hidden) return;
+      if (Math.abs(pagesEl.clientWidth - lastW) < 40) return;   // abaikan perubahan kecil (bilah alamat HP)
+      var idx = currentIndex(), doc = pdfDoc;
+      buildPages(doc);
+      setTimeout(function () { if (pagesEl.children[idx]) pagesEl.children[idx].scrollIntoView({ block: 'start' }); }, 80);
+    }, 250);
+  });
+
+  // ----- Pencarian teks -----
+  function pageText(n) {
+    if (pageTexts[n]) return Promise.resolve(pageTexts[n]);
+    var doc = pdfDoc;
+    return doc.getPage(n).then(function (p) { return p.getTextContent(); }).then(function (tc) {
+      var t = norm(tc.items.map(function (i) { return i.str; }).join(' '));
+      var r = { t: t, ns: t.replace(/ /g, '') };     // ns: tanpa spasi, untuk teks Arab yang terpecah per huruf
+      if (doc === pdfDoc) pageTexts[n] = r;
+      return r;
+    });
+  }
+  function countOcc(h, q) {
+    var c = 0, i = h.indexOf(q);
+    while (i !== -1) { c++; i = h.indexOf(q, i + q.length); }
+    return c;
+  }
+  function snippet(h, q) {
+    var i = h.indexOf(q);
+    return esc(h.slice(Math.max(0, i - 40), i)) + '<mark>' + esc(h.substr(i, q.length)) + '</mark>' + esc(h.substr(i + q.length, 60));
+  }
+
+  function doSearch(raw) {
+    var q = norm(raw);
+    if (!q || !pdfDoc) return;
+    var qn = q.replace(/ /g, ''), my = ++searchId, doc = pdfDoc, n = 1;
+    var html = '', pagesHit = 0, total = 0, chars = 0;
+    hitsEl.hidden = false; hitList.innerHTML = ''; hitInfo.textContent = 'Mencari…';
+
+    (function next() {
+      if (my !== searchId || doc !== pdfDoc) return;
+      if (n > doc.numPages) {
+        if (pagesHit) {
+          hitInfo.textContent = total + ' kecocokan di ' + pagesHit + ' halaman';
+          hitList.innerHTML = html;
+        } else {
+          hitInfo.textContent = 'Tidak ditemukan';
+          hitList.innerHTML = '<p class="none">' + (chars < 20
+            ? 'Buku ini tampaknya hasil pindaian (gambar), sehingga teksnya tidak bisa dicari.'
+            : 'Tidak ada hasil untuk “' + esc(raw) + '”.') + '</p>';
+        }
+        return;
+      }
+      pageText(n).then(function (pt) {
+        if (my !== searchId) return;
+        chars += pt.t.length;
+        var c = countOcc(pt.t, q), h = pt.t, qq = q;
+        if (!c && qn) { c = countOcc(pt.ns, qn); h = pt.ns; qq = qn; }
+        if (c) {
+          pagesHit++; total += c;
+          html += '<button type="button" class="hit" data-pg="' + n + '"><b>Hlm. ' + n + '</b>' +
+                  (c > 1 ? ' <em>· ' + c + '×</em>' : '') + '<br>… ' + snippet(h, qq) + ' …</button>';
+        }
+        if (n % 5 === 0) hitInfo.textContent = 'Mencari… hlm. ' + n + '/' + doc.numPages + (pagesHit ? ' · ' + pagesHit + ' halaman cocok' : '');
+        n++; setTimeout(next, 0);
+      }).catch(function () { n++; setTimeout(next, 0); });
+    })();
+  }
+
+  pdfForm.addEventListener('submit', function (e) {
+    e.preventDefault(); pdfQ.blur(); doSearch(pdfQ.value);
+  });
+  $('hitClose').addEventListener('click', function () { hitsEl.hidden = true; });
+  hitList.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-pg]'); if (!b) return;
+    var pg = pagesEl.children[+b.getAttribute('data-pg') - 1];
+    if (!pg) return;
+    hitsEl.hidden = true;                       // beri ruang agar halaman terlihat
+    pg.scrollIntoView({ block: 'start' });
+    pg.classList.add('flash'); setTimeout(function () { pg.classList.remove('flash'); }, 1600);
+  });
+
   function closeViewer(fromPop) {
     if (!el.viewer.classList.contains('show')) return;
-    el.viewer.classList.remove('show'); el.frame.src = 'about:blank';
+    viewId++;
+    el.viewer.classList.remove('show');
+    resetViewerBody();
     document.body.style.overflow = '';
     if (!fromPop && history.state && history.state.viewer) history.back();
     if (state.lastFocus && state.lastFocus.focus) state.lastFocus.focus();
@@ -542,6 +824,10 @@
   if (API_URL.indexOf('GANTI_DENGAN') !== -1) {
     showError('URL Web App belum diatur. Isi variabel API_URL di index.html dengan URL deployment Apps Script (berakhiran /exec).');
   } else {
+    try {                                       // satu kunjungan per sesi browser
+      if (!sessionStorage.getItem('mk_hit')) { sessionStorage.setItem('mk_hit', '1'); logHit('kunjungan'); }
+    } catch (e) { logHit('kunjungan'); }
+
     var cached = readCache();
     if (cached && cached.items.length) {
       setBooks(cached.items, cached.v);
